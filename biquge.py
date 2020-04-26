@@ -6,6 +6,7 @@ from lxml import etree
 import re
 import random
 from multiprocessing import Pool
+import pandas as pd
 
 import time
 
@@ -30,19 +31,18 @@ class biqugeCrawl():
 
             content = re.sub("<.*?>", "", re.sub("&nbsp;&nbsp;", " ", content))
 
-            # 创建document对象
-            document = Document()
+            ID = re.sub(".html", "", url.split("/")[-1])
+            with open("《{}》.txt".format(book_name), "a+", encoding="gbk") as f:
+                f.write("《" + name + "》\n"+content+"\n\n\n")
 
-            # 将文本写入文档
-            document.add_paragraph(content)
+            with open("《{}》/{}_《{}》.txt".format(book_name, ID, name), "a", encoding="gbk") as f:
+                f.write(content)
 
-            document.save("《{}》/《{}》.docx".format(book_name, name))
-
-            print('《' + name + '》已下载完成')
+            print('《' + name + '》已获取')
 
         except Exception as e:
             with open("./log.txt", "a+", encoding="utf-8") as file:
-                file.write("*"*30+"\n"+str(e))
+                file.write("*"*30+"\n"+str(e) + "\n")
             print("出现异常，下载中断，请查看log文件！")
             pass
 
@@ -84,7 +84,6 @@ class biqugeCrawl():
               "Mozilla/5.0 (X11; U; Linux Core i7-4980HQ; de; rv:32.0; compatible; JobboerseBot; Gecko/20100101 Firefox/38.0",
               "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:45.0) Gecko/20100101 Firefox/45.0"
               ]
-
         headers = {
             "User-Agent": {}
         }
@@ -93,34 +92,10 @@ class biqugeCrawl():
 
         return headers
 
-    # 查询书籍函数
-    def search_book(self):
-        serach_url = "http://www.biquge.tv/modules/article/search.php?searchkey={}"
-
-        name = input("请输入书名：")
-
-        name = parse.quote(name.encode('gbk'))
-
-        url = serach_url.format(name)
-
-        response = requests.get(url=url, headers=self.__random_ua())
-
-        root = etree.HTML(response.content)
-
-        try:
-            book_name = root.xpath('//*[@id="nr"]/td[1]/a/text()')[0]
-
-            book_author = root.xpath('//*[@id="nr"]/td[3]/text()')[0]
-
-            book_url = root.xpath('//*[@id="nr"]/td[1]/a/@href')[0]
-
-            return [book_name, book_author, book_url]
-
-        except:
-            return None
-
     # 下载函数
-    def download(self, book_name, url):
+    def download(self, url):
+        start_time = time.time()
+
         url = url.strip()
         response = requests.get(url=url, headers=self.__random_ua())
         root = etree.HTML(response.content)
@@ -128,25 +103,31 @@ class biqugeCrawl():
         content_urls = list(map(lambda x: "http://www.biquge.tv/" + x, root.xpath('//*[@id="list"]/dl/dd/a/@href')[9:]))
         content_names = root.xpath('//*[@id="list"]/dl/dd/a/text()')[9:]
 
+        book_name = root.xpath('//*[@id="info"]/h1/text()')[0]
+
+        utls_names = [i for i in zip(content_urls, content_names)]
+
         # 创建以书名命名的文件夹
         path = '《' + book_name + '》'
         if not os.path.exists(path):
             os.mkdir(path)
 
-        utls_names = [i for i in zip(content_urls, content_names)]
+        # pool = Pool(processes=5)
+        # pool.map(self.parse, utls_names)
 
-        pool = Pool(processes=5)
-        pool.map(self.parse, utls_names)
+        for url_name in utls_names:
+            self.parse(url_name)
+            # time.sleep(random.randint(1, 6))
 
-        print("《{}》下载完毕!".format(book_name))
+        end_time = time.time()
+        print("*"*40 + "\n《{}》下载完毕! 共计用时{:.2f}秒\n".format(book_name, end_time - start_time) + "*"*40)
 
 
 if __name__ == '__main__':
     biquge = biqugeCrawl()
     print("----笔趣阁(http://www.biquge.tv/)小说爬虫----")
-    print("1-------------搜索小说")
-    print("2-------------通过小说链接下载")
-    print("3----------------退出")
+    print("1----------通过小说链接下载")
+    print("2----------退出")
 
     flag = input("请输入指令选择相应功能：")
 
@@ -154,30 +135,20 @@ if __name__ == '__main__':
         error_str = ""
 
         if flag == "1":
-            book = biquge.search_book()
-
-            if book is not None:
-                flag = input("搜索到的书名为《{}》，作者名为{},请确认是否下载【Y/N】".format(book[0], book[1]))
-                while 1:
-                    if flag == 'Y' or flag == 'y':
-                        biquge.download(book[0], book[2])
-                        break
-                    elif flag == 'N' or flag == 'n':
-                        break
-                    else:
-                        flag = input("请正确输入【Y/N】！")
-            else:
-                print("查无此书")
-        elif flag == '2':
             book_url = input("请输入小说链接：")
-            book_name = input("请输入小说名（可自定义）")
-            biquge.download(book_name, book_url)
-        elif flag == "3":
+            try:
+                biquge.download(book_url)
+            except Exception as e:
+                with open("./log.txt", "a+", encoding="utf-8") as file:
+                    file.write("*" * 30 + "\n" + str(e) + "\n")
+                print("出现异常，貌似小说链接有误，请查看log文件！")
+                pass
+        elif flag == "2":
             exit(1)
 
         else:
             error_str = "指令错误，"
 
-        flag = input("{}请重新输入指令选择相应功能【1.搜索；2.链接下载；3.退出】：".format(error_str))
+        flag = input("{}请重新输入指令选择相应功能【1.链接下载；2.退出】：".format(error_str))
 
 
